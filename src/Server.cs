@@ -25,7 +25,8 @@ string urlPath = requestTarget.IndexOfAny("/".ToCharArray(), 1) == -1 ? requestT
 Dictionary<string, string> responses = new Dictionary<string, string>
 {
   {"/", "HTTP/1.1 200 OK\r\n\r\n" },
-  {"/echo", "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %length%\r\n\r\n%message%" }
+  {"/echo", "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %length%\r\n\r\n%message%" },
+  {"/user-agent" , "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %length%\r\n\r\n%message%"}
 };
 
 if (responses.ContainsKey(urlPath))
@@ -41,6 +42,16 @@ if (responses.ContainsKey(urlPath))
     string responseTemplate = responses[urlPath];
     responseTemplate = responseTemplate.Replace("%length%", data.Length.ToString()); // Replacing content-length
     responseTemplate = responseTemplate.Replace("%message%", data);                  // Replacing response body
+    socket.Send(Encoding.UTF8.GetBytes(responseTemplate));
+  }
+  else if (urlPath == "/user-agent")
+  {
+    string userAgentData = httpRequestParts.FirstOrDefault(item => item.StartsWith("user-agent") || item.StartsWith("User-Agent")) ?? "User-Agent: null";
+    string userAgentValue = userAgentData.Split(":")[1].Trim();
+
+    string responseTemplate = responses[urlPath];
+    responseTemplate = responseTemplate.Replace("%length%", userAgentValue.Length.ToString()); // Replacing content-length
+    responseTemplate = responseTemplate.Replace("%message%", userAgentValue);                  // Replacing response body
     socket.Send(Encoding.UTF8.GetBytes(responseTemplate));
   }
 
