@@ -17,13 +17,7 @@ if (!Directory.Exists(tmpDirectoryPath))
   Console.WriteLine("The temporary directory was created successfully");
 }
 
-Dictionary<string, string> responses = new Dictionary<string, string>
-{
-  {"/", "HTTP/1.1 200 OK\r\n\r\n" },
-  {"/echo", "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %length%\r\n\r\n%message%" },
-  {"/user-agent" , "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %length%\r\n\r\n%message%"},
-  {"/files", "HTTP/1.1 200 OK\r\nContent-Type: %mime_type%\r\nContent-Length: %length%\r\n\r\n%message%"}
-};
+HashSet<string> validEndpoints = new HashSet<string> { "/", "/echo", "/user-agent", "/files" };
 
 TcpListener server = new TcpListener(IPAddress.Any, 4221);
 server.Start();
@@ -31,10 +25,10 @@ server.Start();
 while (true)
 {
   Socket socket = server.AcceptSocket(); // wait for client
-  _ = Task.Run(() => handleRequest(socket, responses));
+  _ = Task.Run(() => handleRequest(socket));
 }
 
-void handleRequest(Socket socket, Dictionary<string, string> responses)
+void handleRequest(Socket socket)
 {
   Console.WriteLine($"Connection from {socket.RemoteEndPoint} has been established");
 
@@ -50,7 +44,7 @@ void handleRequest(Socket socket, Dictionary<string, string> responses)
   var (httpMethod, requestTarget, httpVersion) = (requestLineParts[0], requestLineParts[1], requestLineParts[2]);
   string urlPath = requestTarget.IndexOfAny("/".ToCharArray(), 1) == -1 ? requestTarget : requestTarget.Substring(0, requestTarget.IndexOfAny("/".ToCharArray(), 1));
 
-  if (responses.ContainsKey(urlPath))
+  if (validEndpoints.Contains(urlPath))
   {
     //Sends a response string to the connected client.
     if (urlPath == "/")
