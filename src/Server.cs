@@ -80,21 +80,35 @@ void handleRequest(Socket socket, Dictionary<string, string> responses)
       string fileNameRequested = requestTarget.Replace("/files/", "");
       string filePath = String.Concat(tmpDirectoryPath, fileNameRequested);
 
-      if (File.Exists(filePath) && fileNameRequested.Length > 0)
+      if (httpMethod == "GET")
       {
-        string fileExtension = Path.GetExtension(filePath);
-        string mimeType = MimeTypes.GetMimeTypeOrDefault(fileExtension, "application/octet-stream");
-        string fileContent = File.ReadAllText(filePath);  // Open the file to read from.
+        if (File.Exists(filePath) && fileNameRequested.Length > 0)
+        {
+          string fileExtension = Path.GetExtension(filePath);
+          string mimeType = MimeTypes.GetMimeTypeOrDefault(fileExtension, "application/octet-stream");
+          string fileContent = File.ReadAllText(filePath);  // Open the file to read from.
 
-        string responseTemplate = responses[urlPath];
-        responseTemplate = responseTemplate.Replace("%mime_type%", mimeType);                     // Replacing content-type
-        responseTemplate = responseTemplate.Replace("%length%", fileContent.Length.ToString());   // Replacing content-length
-        responseTemplate = responseTemplate.Replace("%message%", fileContent);                    // Replacing response body
-        socket.Send(Encoding.UTF8.GetBytes(responseTemplate));
+          string responseTemplate = responses[urlPath];
+          responseTemplate = responseTemplate.Replace("%mime_type%", mimeType);                     // Replacing content-type
+          responseTemplate = responseTemplate.Replace("%length%", fileContent.Length.ToString());   // Replacing content-length
+          responseTemplate = responseTemplate.Replace("%message%", fileContent);                    // Replacing response body
+          socket.Send(Encoding.UTF8.GetBytes(responseTemplate));
+        }
+        else
+        {
+          socket.Send(Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n"));
+        }
       }
-      else
+      else if (httpMethod == "POST")
       {
-        socket.Send(Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n"));
+        string contentLengthHeader = httpRequestParts.Where(item => item.StartsWith("Content-Length") || item.StartsWith("content-length")).First();
+        int contentLengthValue = int.Parse(contentLengthHeader.Split(":")[1].Trim()); // Obtain the Content-Lenght value
+
+        string requestBody = httpRequestParts.Last();               // Obtain the request body
+        requestBody = requestBody.Substring(0, contentLengthValue); // Avoid any additional request data
+        File.WriteAllText(filePath, requestBody);                   // Create and Write the request body in the file
+
+        socket.Send(Encoding.UTF8.GetBytes("HTTP/1.1 201 Created\r\n\r\n"));
       }
     }
   }
