@@ -55,25 +55,28 @@ void handleRequest(Socket socket, Dictionary<string, string> responses)
     //Sends a response string to the connected client.
     if (urlPath == "/")
     {
-      socket.Send(Encoding.UTF8.GetBytes(responses[urlPath]));
+      socket.Send(Encoding.UTF8.GetBytes($"{httpVersion} 200 OK\r\n\r\n"));
     }
     else if (urlPath == "/echo")
     {
       string data = requestTarget.Replace("/echo/", "");
-      string responseTemplate = responses[urlPath];
-      responseTemplate = responseTemplate.Replace("%length%", data.Length.ToString()); // Replacing content-length
-      responseTemplate = responseTemplate.Replace("%message%", data);                  // Replacing response body
-      socket.Send(Encoding.UTF8.GetBytes(responseTemplate));
+
+      string response = $"{httpVersion} 200 OK\r\n" +
+                        "Content-Type: text/plain\r\n" +
+                        $"Content-Length: {data.Length}\r\n\r\n" + // Replacing content-length
+                        data;                                      // Replacing response body
+      socket.Send(Encoding.UTF8.GetBytes(response));
     }
     else if (urlPath == "/user-agent")
     {
       string userAgentData = httpRequestParts.FirstOrDefault(item => item.StartsWith("user-agent") || item.StartsWith("User-Agent")) ?? "User-Agent: null";
       string userAgentValue = userAgentData.Split(":")[1].Trim();
 
-      string responseTemplate = responses[urlPath];
-      responseTemplate = responseTemplate.Replace("%length%", userAgentValue.Length.ToString()); // Replacing content-length
-      responseTemplate = responseTemplate.Replace("%message%", userAgentValue);                  // Replacing response body
-      socket.Send(Encoding.UTF8.GetBytes(responseTemplate));
+      string response = $"{httpVersion} 200 OK\r\n" +
+                        "Content-Type: text/plain\r\n" +
+                        $"Content-Length: {userAgentValue.Length}\r\n\r\n" + // Replacing content-length
+                        userAgentValue;                                      // Replacing response body
+      socket.Send(Encoding.UTF8.GetBytes(response));
     }
     else if (urlPath == "/files")
     {
@@ -88,15 +91,15 @@ void handleRequest(Socket socket, Dictionary<string, string> responses)
           string mimeType = MimeTypes.GetMimeTypeOrDefault(fileExtension, "application/octet-stream");
           string fileContent = File.ReadAllText(filePath);  // Open the file to read from.
 
-          string responseTemplate = responses[urlPath];
-          responseTemplate = responseTemplate.Replace("%mime_type%", mimeType);                     // Replacing content-type
-          responseTemplate = responseTemplate.Replace("%length%", fileContent.Length.ToString());   // Replacing content-length
-          responseTemplate = responseTemplate.Replace("%message%", fileContent);                    // Replacing response body
-          socket.Send(Encoding.UTF8.GetBytes(responseTemplate));
+          string response = $"{httpVersion} 200 OK\r\n" +
+                            $"Content-Type: {mimeType}\r\n" +                 // Replacing content-type
+                            $"Content-Length: {fileContent.Length}\r\n\r\n" + // Replacing content-length
+                            fileContent;                                      // Replacing response body
+          socket.Send(Encoding.UTF8.GetBytes(response));
         }
         else
         {
-          socket.Send(Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n"));
+          socket.Send(Encoding.UTF8.GetBytes($"{httpVersion} 404 Not Found\r\n\r\n"));
         }
       }
       else if (httpMethod == "POST")
@@ -108,14 +111,14 @@ void handleRequest(Socket socket, Dictionary<string, string> responses)
         requestBody = requestBody.Substring(0, contentLengthValue); // Avoid any additional request data
         File.WriteAllText(filePath, requestBody);                   // Create and Write the request body in the file
 
-        socket.Send(Encoding.UTF8.GetBytes("HTTP/1.1 201 Created\r\n\r\n"));
+        socket.Send(Encoding.UTF8.GetBytes($"{httpVersion} 201 Created\r\n\r\n"));
       }
     }
   }
   else
   {
     //Sends a 404 response string to the connected client.
-    socket.Send(Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n"));
+    socket.Send(Encoding.UTF8.GetBytes($"{httpVersion} 404 Not Found\r\n\r\n"));
   }
 
   //Closes the socket to free up system resources
