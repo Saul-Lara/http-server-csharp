@@ -1,33 +1,49 @@
-# Use this script to run your program LOCALLY.
+# This script compiles and runs your .NET program locally.
+# Optional: Accepts a -directory parameter to pass to the executable.
+
+param(
+    [Parameter(ParameterSetName = "directory", HelpMessage="Specifies the root directory to be used by the server")]
+    [string]
+    $DirectoryPath
+)
 
 $ErrorActionPreference = "Stop" # Exit early if any commands fail
 
-$temp_directory = "C:\tmp\codecrafters-build-http-server-csharp"
-$temp_path = Join-Path $temp_directory "codecrafters-http-server.exe"
+# Get the script's directory
+$scriptPath = $MyInvocation.MyCommand.Path
+$repoRoot = Split-Path $scriptPath -Parent
 
-$script_path = $MyInvocation.MyCommand.Path
-$dirname = Split-Path $script_path -Parent
+# Path to the built executable
+$buildPath = Join-Path $repoRoot "bin\Release\net9.0\codecrafters-http-server.exe"
 
-Write-Host "[INFO] Directory of the script : $dirname `n" -ForegroundColor White
-cd $dirname # Ensure compile steps are run within the repository directory
+# Go to project root
+Write-Host "[INFO] Script directory: $repoRoot `n" -ForegroundColor Cyan
+Set-Location $repoRoot
 
-# Compile the project
+# Build the project
 Write-Host "[INFO] Compiling the project... `n" -ForegroundColor White
-try {
-    dotnet build --configuration Release --output $temp_directory codecrafters-http-server.csproj
-} catch {
-    Write-Host "[ERROR] Build failed: $_" -ForegroundColor Red
+dotnet build --configuration Release
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Build failed." -ForegroundColor Red
     exit 1
 }
-Write-Output ""
+Write-Host "[SUCCESS] Build completed.`n" -ForegroundColor Green
 
-# Run the executable if it exists
-if (Test-Path $temp_path) {
-    Write-Host "[INFO] Running the program... `n" -ForegroundColor White
-    & "$temp_path"
+# Check if the executable exists
+if (Test-Path $buildPath) {
+    Write-Host "[INFO] Running the executable... `n" -ForegroundColor White
+
+    if ($PSCmdlet.ParameterSetName -eq 'directory') {
+        Write-Host "[INFO] Running with --directory flag: $DirectoryPath" -ForegroundColor Yellow
+        & "$buildPath" --directory $DirectoryPath
+
+    }else{
+        Write-Host "[INFO] Running without --directory flag" -ForegroundColor Yellow
+        & "$buildPath"
+    }
+
 } else {
-    Write-Host "[ERROR] Executable not found at $temp_path" -ForegroundColor Red
+    Write-Host "[ERROR] Executable not found at: $buildPath" -ForegroundColor Red
     exit 1
 }
-
-exit
