@@ -18,6 +18,7 @@ if (!Directory.Exists(tmpDirectoryPath))
 }
 
 HashSet<string> validEndpoints = new HashSet<string> { "/", "/echo", "/user-agent", "/files" };
+HashSet<string> validCompressions = new HashSet<string> { "gzip" };
 
 TcpListener server = new TcpListener(IPAddress.Any, 4221);
 server.Start();
@@ -55,8 +56,21 @@ void handleRequest(Socket socket)
     {
       string data = requestTarget.Replace("/echo/", "");
 
+      string encodingHeader = ""; // default: no encoding header
+      string encodingData = httpRequestParts.FirstOrDefault(item => item.StartsWith("Accept-Encoding", StringComparison.OrdinalIgnoreCase)) ?? "";
+
+      if (!string.IsNullOrEmpty(encodingData) && encodingData.Contains(':'))
+      {
+        string encodingValue = encodingData.Split(":", 2)[1].Trim().ToLower();
+        if (validCompressions.Contains(encodingValue))
+        {
+          encodingHeader = $"Content-Encoding: {encodingValue}\r\n";
+        }
+      }
+
       string response = $"{httpVersion} 200 OK\r\n" +
                         "Content-Type: text/plain\r\n" +
+                        encodingHeader +                           // Replacing content-encoding (when requested)
                         $"Content-Length: {data.Length}\r\n\r\n" + // Replacing content-length
                         data;                                      // Replacing response body
       socket.Send(Encoding.UTF8.GetBytes(response));
