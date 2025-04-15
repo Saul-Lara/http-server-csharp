@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Runtime.InteropServices;
+using System.IO.Compression;
 
 // You can use print statements as follows for debugging, they'll be visible when running tests.
 Console.WriteLine("Logs from your program will appear here!");
@@ -55,6 +56,7 @@ void handleRequest(Socket socket)
     else if (urlPath == "/echo")
     {
       string data = requestTarget.Replace("/echo/", "");
+      byte[] responseBody = Encoding.UTF8.GetBytes(data); // Encode the response body using UTF-8 by default
 
       string encodingHeader = ""; // default: no encoding header
       string encodingData = httpRequestParts.FirstOrDefault(item => item.StartsWith("Accept-Encoding", StringComparison.OrdinalIgnoreCase)) ?? "";
@@ -63,25 +65,27 @@ void handleRequest(Socket socket)
       {
         string encodingValues = encodingData.Split(":", 2)[1].Trim().ToLower();
 
-        foreach (var compressionType in encodingValues.Split(", "))  // Posiblemente en funcion logica separada
+        // Iterate through each encoding type in the Accept-Encoding header
+        foreach (var compressionType in encodingValues.Split(",").Select(values => values.Trim()))
         {
-          if (validCompressions.Contains(compressionType))
+          if (validCompressions.Contains(compressionType)) // Check if the compression type is supported
           {
-            if (compressionType == "gzip")
+            if (compressionType == "gzip") // If gzip is supported and requested, compress the body and update headers
             {
               encodingHeader = $"Content-Encoding: {compressionType}\r\n";
+              responseBody = handleGzipCompression(data);
               break;
             }
           }
         }
       }
 
-      string response = $"{httpVersion} 200 OK\r\n" +
+      string responseHeaders = $"{httpVersion} 200 OK\r\n" +
                         "Content-Type: text/plain\r\n" +
                         encodingHeader +                           // Replacing content-encoding (when requested)
-                        $"Content-Length: {data.Length}\r\n\r\n" + // Replacing content-length
-                        data;                                      // Replacing response body
-      socket.Send(Encoding.UTF8.GetBytes(response));
+                        $"Content-Length: {responseBody.Length}\r\n\r\n";  // Replacing content-length
+
+      socket.Send([.. Encoding.UTF8.GetBytes(responseHeaders), .. responseBody]);
     }
     else if (urlPath == "/user-agent")
     {
@@ -139,4 +143,18 @@ void handleRequest(Socket socket)
 
   //Closes the socket to free up system resources
   socket.Close();
+}
+
+byte[] handleGzipCompression(string originalData)
+{
+  byte[] dataToCompress = Encoding.UTF8.GetBytes(originalData);
+  using (var outputStream = new MemoryStream())
+  {
+    using (var compressor = new GZipStream(outputStream, CompressionMode.Compress))
+    {
+      compressor.Write(dataToCompress, 0, dataToCompress.Length);
+    }
+
+    return outputStream.ToArray();
+  }
 }
