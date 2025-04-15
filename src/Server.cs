@@ -61,10 +61,18 @@ void handleRequest(Socket socket)
 
       if (!string.IsNullOrEmpty(encodingData) && encodingData.Contains(':'))
       {
-        string encodingValue = encodingData.Split(":", 2)[1].Trim().ToLower();
-        if (validCompressions.Contains(encodingValue))
+        string encodingValues = encodingData.Split(":", 2)[1].Trim().ToLower();
+
+        foreach (var compressionType in encodingValues.Split(", "))  // Posiblemente en funcion logica separada
         {
-          encodingHeader = $"Content-Encoding: {encodingValue}\r\n";
+          if (validCompressions.Contains(compressionType))
+          {
+            if (compressionType == "gzip")
+            {
+              encodingHeader = $"Content-Encoding: {compressionType}\r\n";
+              break;
+            }
+          }
         }
       }
 
