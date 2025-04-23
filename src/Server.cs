@@ -51,7 +51,11 @@ void handleRequest(Socket socket)
     string urlPath = requestTarget.IndexOfAny("/".ToCharArray(), 1) == -1 ? requestTarget : requestTarget.Substring(0, requestTarget.IndexOfAny("/".ToCharArray(), 1));
 
     string connectionData = httpRequestParts.FirstOrDefault(item => item.StartsWith("Connection", StringComparison.OrdinalIgnoreCase)) ?? "";
-    string connectionHeader = ""; // default: no encoding header
+
+    // Initialize empty headers and body for each new request
+    Dictionary<string, string> headers = new Dictionary<string, string>();
+    headers["Content-Length"] = "0";  // Sets Content-Length with 0 by default
+    byte[] body = Array.Empty<byte>();
     bool shouldClose = false;
 
     if (connectionData.Contains(':')) // Check for `Connection: close` header
@@ -59,7 +63,7 @@ void handleRequest(Socket socket)
       string connectionValue = connectionData.Split(":", 2)[1].Trim().ToLower();
       if (connectionValue == "close")
       {
-        connectionHeader = $"Connection: close\r\n";
+        headers["Connection"] = "close"; // Appends Connection header if present
         shouldClose = true;
       }
     }
@@ -69,17 +73,13 @@ void handleRequest(Socket socket)
       //Sends a response string to the connected client.
       if (urlPath == "/")
       {
-        string response = $"{httpVersion} 200 OK\r\n" +
-                          $"{connectionHeader}\r\n";
-
-        socket.Send(Encoding.UTF8.GetBytes(response));
+        socket.Send(generateHttpResponse(httpVersion, 200, "OK", headers, body));
       }
       else if (urlPath == "/echo")
       {
         string data = requestTarget.Replace("/echo/", "");
         byte[] responseBody = Encoding.UTF8.GetBytes(data); // Encode the response body using UTF-8 by default
 
-        string encodingHeader = ""; // default: no encoding header
         string encodingData = httpRequestParts.FirstOrDefault(item => item.StartsWith("Accept-Encoding", StringComparison.OrdinalIgnoreCase)) ?? "";
 
         if (!string.IsNullOrEmpty(encodingData) && encodingData.Contains(':'))
@@ -93,7 +93,7 @@ void handleRequest(Socket socket)
             {
               if (compressionType == "gzip") // If gzip is supported and requested, compress the body and update headers
               {
-                encodingHeader = $"Content-Encoding: {compressionType}\r\n";
+                headers["Content-Encoding"] = $"{compressionType}";
                 responseBody = handleGzipCompression(data);
                 break;
               }
@@ -101,25 +101,21 @@ void handleRequest(Socket socket)
           }
         }
 
-        string responseHeaders = $"{httpVersion} 200 OK\r\n" +
-                          "Content-Type: text/plain\r\n" +
-                          encodingHeader +                           // Adds Content-Encoding header if compression is applied
-                          connectionHeader +                         // Appends Connection header if present
-                          $"Content-Length: {responseBody.Length}\r\n\r\n";  // Sets Content-Length based on response body
+        headers["Content-Type"] = "text/plain";                 // Sets content-type
+        headers["Content-Length"] = $"{responseBody.Length}";   // Sets Content-Length based on response body
 
-        socket.Send([.. Encoding.UTF8.GetBytes(responseHeaders), .. responseBody]);
+        socket.Send(generateHttpResponse(httpVersion, 200, "OK", headers, responseBody));
       }
       else if (urlPath == "/user-agent")
       {
         string userAgentData = httpRequestParts.FirstOrDefault(item => item.StartsWith("user-agent") || item.StartsWith("User-Agent")) ?? "User-Agent: null";
         string userAgentValue = userAgentData.Split(":")[1].Trim();
 
-        string response = $"{httpVersion} 200 OK\r\n" +
-                          "Content-Type: text/plain\r\n" +
-                          connectionHeader +                                   // Appends Connection header if present
-                          $"Content-Length: {userAgentValue.Length}\r\n\r\n" + // Sets Content-Length based on response body
-                          userAgentValue;                                      // Appends the response body
-        socket.Send(Encoding.UTF8.GetBytes(response));
+        headers["Content-Type"] = "text/plain";                 // Sets content-type
+        headers["Content-Length"] = $"{userAgentValue.Length}"; // Sets Content-Length based on response body
+        body = Encoding.UTF8.GetBytes(userAgentValue);          // Get bytes of the response body
+
+        socket.Send(generateHttpResponse(httpVersion, 200, "OK", headers, body));
       }
       else if (urlPath == "/files")
       {
@@ -132,18 +128,17 @@ void handleRequest(Socket socket)
           {
             string fileExtension = Path.GetExtension(filePath);
             string mimeType = MimeTypes.GetMimeTypeOrDefault(fileExtension, "application/octet-stream");
-            string fileContent = File.ReadAllText(filePath);  // Open the file to read from.
+            string fileContent = File.ReadAllText(filePath);     // Open the file to read from.
 
-            string response = $"{httpVersion} 200 OK\r\n" +
-                              $"Content-Type: {mimeType}\r\n" +                 // Sets content-type
-                              connectionHeader +                                // Appends Connection header if present
-                              $"Content-Length: {fileContent.Length}\r\n\r\n" + // Sets Content-Length based on response body
-                              fileContent;                                      // Appends the response body
-            socket.Send(Encoding.UTF8.GetBytes(response));
+            headers["Content-Type"] = mimeType;                  // Sets content-type
+            headers["Content-Length"] = $"{fileContent.Length}"; // Sets Content-Length based on response body
+            body = Encoding.UTF8.GetBytes(fileContent);          // Get bytes of the response body
+
+            socket.Send(generateHttpResponse(httpVersion, 200, "OK", headers, body));
           }
           else
           {
-            socket.Send(Encoding.UTF8.GetBytes($"{httpVersion} 404 Not Found\r\n{connectionHeader}\r\n"));
+            socket.Send(generateHttpResponse(httpVersion, 404, "Not Found", headers, body));
           }
         }
         else if (httpMethod == "POST")
@@ -155,14 +150,14 @@ void handleRequest(Socket socket)
           requestBody = requestBody.Substring(0, contentLengthValue); // Avoid any additional request data
           File.WriteAllText(filePath, requestBody);                   // Create and Write the request body in the file
 
-          socket.Send(Encoding.UTF8.GetBytes($"{httpVersion} 201 Created\r\n{connectionHeader}\r\n"));
+          socket.Send(generateHttpResponse(httpVersion, 201, "Created", headers, body));
         }
       }
     }
     else
     {
       //Sends a 404 response string to the connected client.
-      socket.Send(Encoding.UTF8.GetBytes($"{httpVersion} 404 Not Found\r\n{connectionHeader}\r\n"));
+      socket.Send(generateHttpResponse(httpVersion, 404, "Not Found", headers, body));
     }
 
     //Closes the socket to free up system resources
@@ -187,4 +182,21 @@ byte[] handleGzipCompression(string originalData)
 
     return outputStream.ToArray();
   }
+}
+
+byte[] generateHttpResponse(string httpVersion, int statusCode, string statusMessage, Dictionary<string, string> headers,
+                            byte[] body)
+{
+  string response = $"{httpVersion} {statusCode} {statusMessage}\r\n";
+
+  foreach ((string headerName, string value) in headers)
+  {
+    response += $"{headerName}: {value}\r\n";
+  }
+
+  response += "\r\n";
+
+  byte[] responseBytes = Encoding.UTF8.GetBytes(response);
+
+  return [.. responseBytes, .. body];
 }
