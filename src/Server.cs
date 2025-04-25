@@ -41,16 +41,20 @@ void handleRequest(Socket socket)
     int bytesReceived = socket.Receive(httpRequest);
     if (bytesReceived == 0) break; // client disconnected
 
+    Dictionary<string, string> requestLine;
+    Dictionary<string, string> requestHeaders;
+    string requestBody;
 
-    string requestData = Encoding.UTF8.GetString(httpRequest);
+    (requestLine, requestHeaders, requestBody) = extractHTTPRequest(httpRequest);
 
-    string[] httpRequestParts = requestData.Split("\r\n");
-    string requestLine = httpRequestParts[0];
-    string[] requestLineParts = requestLine.Split(" ");
-    var (httpMethod, requestTarget, httpVersion) = (requestLineParts[0], requestLineParts[1], requestLineParts[2]);
-    string urlPath = requestTarget.IndexOfAny("/".ToCharArray(), 1) == -1 ? requestTarget : requestTarget.Substring(0, requestTarget.IndexOfAny("/".ToCharArray(), 1));
+    string httpMethod, requestTarget, httpVersion;
+    (httpMethod, requestTarget, httpVersion) = (requestLine["Method"], requestLine["Target"], requestLine["Version"]);
 
-    string connectionData = httpRequestParts.FirstOrDefault(item => item.StartsWith("Connection", StringComparison.OrdinalIgnoreCase)) ?? "";
+    // Get path prefix before the second slash, if any (e.g. /echo/hello → /echo)
+    int secondSlashIndex = requestTarget.IndexOf('/', 1);
+    string urlPath = secondSlashIndex == -1
+      ? requestTarget
+      : requestTarget.Substring(0, secondSlashIndex);
 
     // Initialize empty headers and body for each new request
     Dictionary<string, string> headers = new Dictionary<string, string>();
@@ -58,9 +62,9 @@ void handleRequest(Socket socket)
     byte[] body = Array.Empty<byte>();
     bool shouldClose = false;
 
-    if (connectionData.Contains(':')) // Check for `Connection: close` header
+    if (requestHeaders.ContainsKey("Connection")) // Check for `Connection: close` header
     {
-      string connectionValue = connectionData.Split(":", 2)[1].Trim().ToLower();
+      string connectionValue = requestHeaders["Connection"].ToLower();
       if (connectionValue == "close")
       {
         headers["Connection"] = "close"; // Appends Connection header if present
@@ -80,11 +84,9 @@ void handleRequest(Socket socket)
         string data = requestTarget.Replace("/echo/", "");
         byte[] responseBody = Encoding.UTF8.GetBytes(data); // Encode the response body using UTF-8 by default
 
-        string encodingData = httpRequestParts.FirstOrDefault(item => item.StartsWith("Accept-Encoding", StringComparison.OrdinalIgnoreCase)) ?? "";
-
-        if (!string.IsNullOrEmpty(encodingData) && encodingData.Contains(':'))
+        if (requestHeaders.ContainsKey("Accept-Encoding"))
         {
-          string encodingValues = encodingData.Split(":", 2)[1].Trim().ToLower();
+          string encodingValues = requestHeaders["Accept-Encoding"].ToLower();
 
           // Iterate through each encoding type in the Accept-Encoding header
           foreach (var compressionType in encodingValues.Split(",").Select(values => values.Trim()))
@@ -108,8 +110,7 @@ void handleRequest(Socket socket)
       }
       else if (urlPath == "/user-agent")
       {
-        string userAgentData = httpRequestParts.FirstOrDefault(item => item.StartsWith("user-agent") || item.StartsWith("User-Agent")) ?? "User-Agent: null";
-        string userAgentValue = userAgentData.Split(":")[1].Trim();
+        string userAgentValue = requestHeaders.ContainsKey("User-Agent") ? requestHeaders["User-Agent"] : "null";
 
         headers["Content-Type"] = "text/plain";                 // Sets content-type
         headers["Content-Length"] = $"{userAgentValue.Length}"; // Sets Content-Length based on response body
@@ -143,10 +144,8 @@ void handleRequest(Socket socket)
         }
         else if (httpMethod == "POST")
         {
-          string contentLengthHeader = httpRequestParts.Where(item => item.StartsWith("Content-Length") || item.StartsWith("content-length")).First();
-          int contentLengthValue = int.Parse(contentLengthHeader.Split(":")[1].Trim()); // Obtain the Content-Lenght value
+          int contentLengthValue = requestHeaders.ContainsKey("Content-Length") ? int.Parse(requestHeaders["Content-Length"]) : 0;
 
-          string requestBody = httpRequestParts.Last();               // Obtain the request body
           requestBody = requestBody.Substring(0, contentLengthValue); // Avoid any additional request data
           File.WriteAllText(filePath, requestBody);                   // Create and Write the request body in the file
 
@@ -199,4 +198,36 @@ byte[] generateHttpResponse(string httpVersion, int statusCode, string statusMes
   byte[] responseBytes = Encoding.UTF8.GetBytes(response);
 
   return [.. responseBytes, .. body];
+}
+
+(Dictionary<string, string> requestLine, Dictionary<string, string> headers, string body) extractHTTPRequest(byte[] httpRequest)
+{
+  string[] requestParts = Encoding.UTF8.GetString(httpRequest).Split("\r\n");
+  Dictionary<string, string> requestLineDict = new();
+  Dictionary<string, string> headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+  string requestLine = requestParts[0];
+
+  int indexEmptyLine = Array.IndexOf(requestParts, String.Empty); // First empty line (that separates headers from the body).
+  string[] headersArray = requestParts[1..indexEmptyLine];
+
+  // Parse request line
+  string[] requestLineParts = requestLine.Split(" ");
+  if (requestLineParts.Length == 3)
+  {
+    (requestLineDict["Method"], requestLineDict["Target"], requestLineDict["Version"]) = (requestLineParts[0], requestLineParts[1], requestLineParts[2]);
+  }
+
+  // Extract headers
+  foreach (string header in headersArray)
+  {
+    string[] data = header.Split(":", 2);
+    (string headerName, string value) = (data[0].Trim(), data[1].Trim());
+    headers[headerName] = value;
+  }
+
+  // Extract body
+  string body = string.Join(Environment.NewLine, requestParts[(indexEmptyLine + 1)..]);
+
+  return (requestLineDict, headers, body);
 }
